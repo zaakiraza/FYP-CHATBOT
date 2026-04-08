@@ -1,0 +1,93 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Therapist assistant (demo)</title>
+  <style>
+    :root {
+      font-family: system-ui, sans-serif;
+      background: #0f1419;
+      color: #e7e9ea;
+    }
+    body { max-width: 720px; margin: 2rem auto; padding: 0 1rem; }
+    h1 { font-size: 1.25rem; font-weight: 600; }
+    label { display: block; margin-top: 1rem; font-size: 0.85rem; color: #8b98a5; }
+    input, textarea, button {
+      width: 100%; box-sizing: border-box; margin-top: 0.35rem;
+      padding: 0.6rem 0.75rem; border-radius: 8px; border: 1px solid #38444d;
+      background: #16181c; color: inherit; font: inherit;
+    }
+    button {
+      cursor: pointer; background: #1d9bf0; border: none; color: #fff; font-weight: 600;
+      margin-top: 1rem;
+    }
+    button:disabled { opacity: 0.5; cursor: not-allowed; }
+    pre {
+      white-space: pre-wrap; word-break: break-word;
+      background: #16181c; border: 1px solid #38444d; border-radius: 8px;
+      padding: 1rem; margin-top: 1rem; font-size: 0.9rem;
+    }
+    .hint { font-size: 0.8rem; color: #8b98a5; margin-top: 0.5rem; }
+  </style>
+</head>
+<body>
+  <h1>Therapist SOAP assistant (demo)</h1>
+  <p class="hint">
+    Point this at your running FastAPI server. If the server uses <code>SKIP_THERAPIST_JWT=true</code>, leave JWT empty.
+    Otherwise paste a therapist Bearer token (same as your main app).
+  </p>
+
+  <label for="apiBase">API base URL (leave empty when this page is served from the API, e.g. /chat)</label>
+  <input id="apiBase" type="url" value="" placeholder="Empty = same server as this page" />
+
+  <label for="token">Bearer JWT (optional if server skips auth)</label>
+  <input id="token" type="password" autocomplete="off" placeholder="Leave empty for local SKIP_THERAPIST_JWT" />
+
+  <label for="msg">Message</label>
+  <textarea id="msg" rows="4" placeholder="What themes came up in my last sessions with this patient?"></textarea>
+
+  <button type="button" id="send">Send</button>
+
+  <pre id="out">(response will appear here)</pre>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    $("send").onclick = async () => {
+      let base = $("apiBase").value.replace(/\/$/, "");
+      if (!base) {
+        base = window.location.origin;
+      }
+      const token = $("token").value.trim();
+      const message = $("msg").value.trim();
+      if (!message) {
+        alert("Enter a message.");
+        return;
+      }
+      $("send").disabled = true;
+      $("out").textContent = "Loading…";
+      try {
+        const headers = { "Content-Type": "application/json", accept: "application/json" };
+        if (token) {
+          headers.Authorization = "Bearer " + token;
+        }
+        const res = await fetch(base + "/api/therapist-chat", {
+          method: "POST",
+          headers,
+          body: JSON.stringify({ message }),
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+          $("out").textContent = "Error " + res.status + "\n" + JSON.stringify(data, null, 2);
+          return;
+        }
+        $("out").textContent = data.reply || JSON.stringify(data, null, 2);
+      } catch (e) {
+        $("out").textContent = String(e);
+      } finally {
+        $("send").disabled = false;
+      }
+    };
+  </script>
+</body>
+</html>
