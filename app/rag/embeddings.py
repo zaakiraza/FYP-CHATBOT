@@ -6,6 +6,7 @@ from functools import lru_cache
 
 from google import genai
 
+from app.cache import get_cached_embedding, set_cached_embedding
 from app.config import Settings, get_settings
 
 
@@ -38,7 +39,13 @@ async def embed_text(
     settings: Settings | None = None,
     for_document: bool = False,
 ) -> list[float]:
-    """Return embedding vector. Uses RETRIEVAL_QUERY vs RETRIEVAL_DOCUMENT when supported."""
+    """Return embedding vector. Checks Redis cache first; falls back to Gemini API."""
+    # Cache lookup — skip for document embeddings (backfill) to always get fresh vectors
+    if not for_document:
+        cached = await get_cached_embedding(text)
+        if cached is not None:
+            return cached
+
     s = settings or get_settings()
     key = _ensure_key(s)
     client = _client(key)
@@ -61,7 +68,13 @@ async def embed_text(
             )
         return _first_embedding_values(resp)
 
-    return await asyncio.to_thread(_call)
+    embedding = await asyncio.to_thread(_call)
+
+    # Store in cache (query embeddings only)
+    if not for_document:
+        await set_cached_embedding(text, embedding)
+
+    return embedding
 
 
 async def embed_document_text(text: str, settings: Settings | None = None) -> list[float]:

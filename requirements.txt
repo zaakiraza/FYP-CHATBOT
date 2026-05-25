@@ -7,3 +7,5 @@ PyJWT[crypto]>=2.9.0
 google-genai>=1.0.0
 slowapi>=0.1.9
 python-multipart>=0.0.12
+numpy>=1.26.0
+redis[asyncio]>=5.0.0

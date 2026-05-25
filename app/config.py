@@ -38,6 +38,20 @@ class Settings(BaseSettings):
     rag_max_chunks_fetch: int = Field(default=8000, validation_alias="RAG_MAX_CHUNKS_FETCH")
     # If true, retrieval filters MongoDB by the authenticated therapist; if false (default), search all SOAP chunks.
     rag_therapist_scoped: bool = Field(default=False, validation_alias="RAG_THERAPIST_SCOPED")
+    # Minimum cosine similarity score (0.0–1.0) for a chunk to be considered relevant.
+    # Chunks below this threshold are discarded before the LLM is called.
+    rag_min_score: float = Field(default=0.60, validation_alias="RAG_MIN_SCORE")
+    # Set to true when using MongoDB Atlas and a vector search index has been created.
+    use_atlas_vector_search: bool = Field(default=False, validation_alias="USE_ATLAS_VECTOR_SEARCH")
+    atlas_vector_index_name: str = Field(default="vector_index", validation_alias="ATLAS_VECTOR_INDEX_NAME")
+
+    # Redis — leave blank to disable caching entirely (app works without it)
+    redis_url: str = Field(default="", validation_alias="REDIS_URL")
+    # How long to keep a cached embedding vector (seconds). Embeddings are deterministic,
+    # so 24 h is safe.
+    embedding_cache_ttl: int = Field(default=86400, validation_alias="EMBEDDING_CACHE_TTL")
+    # How long to keep a cached LLM response (seconds). 1 h balances freshness vs speed.
+    response_cache_ttl: int = Field(default=3600, validation_alias="RESPONSE_CACHE_TTL")
 
     cors_origins: str = Field(
         default="https://therakonnect.com,http://localhost:3000",

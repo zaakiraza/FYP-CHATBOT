@@ -26,41 +26,44 @@ def _ensure_key(settings: Settings) -> str:
 
 
 def _build_prompt(question: str, chunks: list[RetrievedChunk]) -> str:
+    # Build context blocks — only include the SOAP field label and text.
+    # Never include sessionId, patientId, therapistId, or any other identifier
+    # so the LLM cannot accidentally leak identity in its response.
     blocks = []
     for i, c in enumerate(chunks, start=1):
-        date_part = ""
-        if c.session_date is not None:
-            date_part = f" date={c.session_date!s}"
-        src = ""
-        if c.source_therapist_id:
-            src = f" therapistId={c.source_therapist_id}"
-        blocks.append(
-            f"[{i}] sessionId={c.session_id}{date_part} field={c.field}{src}\n{c.text}"
-        )
-    context = "\n\n---\n\n".join(blocks) if blocks else "(no matching records)"
-    return f"""You are a clinical-documentation assistant for therapists. You answer from the SOAP excerpts when the user asks something about sessions, patients, symptoms, treatment, or themes in their notes.
+        blocks.append(f"[Case {i}] ({c.field})\n{c.text}")
+    context = "\n\n---\n\n".join(blocks) if blocks else "(no documented cases)"
+    return f"""You are a clinical recommendation assistant integrated into a therapy practice management platform. Therapists ask you questions about how to handle clinical situations, and you recommend approaches based solely on documented case patterns from SOAP notes recorded on this platform.
 
-A) Greetings and light openers — ALWAYS allow these:
-- Short messages like hi, hello, hey, good morning, thanks, ok, bye are in-bounds. Reply briefly and warmly (one or two sentences), then invite them to ask about their clinical notes or sessions if they want help. Do NOT use the "out of context" refusal for these.
+IDENTITY RULE (highest priority — never break this):
+- The case excerpts below come from real clinical records. They contain NO names, IDs, or identifiers — do NOT invent or infer any. Never mention a patient name, therapist name, session ID, or any personal identifier in your response. If you somehow see one in the excerpts, ignore it completely.
 
-B) Completely off-topic substantive requests — refuse only these:
-- If the user asks for real information or tasks that have nothing to do with therapy, mental health, or clinical/session documentation — for example: general news, politics, sports results, fuel/petrol prices, weather forecasts, unrelated geography, coding homework, trivia, celebrities — do NOT answer that subject.
-- For those, reply with one short paragraph with this meaning (rephrase slightly if needed):
-  "That topic is outside what this assistant can help with. I work from your clinical session notes — ask about patients, sessions, symptoms, treatment themes, or what appears in your documentation."
-- Do not summarize unrelated facts. Do not say "the notes don't contain X" for off-topic topics like news or petrol prices.
+RESPONSE FORMAT RULE:
+- Always frame your answer as a recommendation. Begin with a phrase such as:
+  "My recommendation for [condition/situation] is..." or "Based on documented cases, I recommend..."
+- Do not say "the notes say" or "according to the records". Speak as a recommender, not a document reader.
 
-C) Clinical / session questions — use the excerpts:
-- Use ONLY the SOAP excerpts below. Do not invent patient details.
-- If the question fits clinical notes but the excerpts do not contain enough information, say briefly that the indexed notes do not mention that specific point.
-- Answer concisely in plain language. Do not list raw metadata unless asked.
+A) Greetings and light openers:
+- Short messages like hi, hello, hey, good morning, thanks, ok, bye — reply briefly and warmly (one or two sentences), then invite the therapist to ask about a clinical situation. Do NOT refuse these.
 
-SOAP excerpts:
+B) Off-topic requests — refuse:
+- Questions unrelated to therapy, mental health, or clinical practice (e.g. politics, economy, news, sports, personal matters, coding, weather) must be refused.
+- Reply with: "I can only assist with clinical recommendations based on documented therapy cases. Please ask about a patient condition, treatment approach, or therapeutic technique."
+- Do NOT answer the off-topic subject, even partially.
+
+C) Clinical questions — recommend from documented cases:
+- Use ONLY the case excerpts below. Do not draw on general medical or psychological knowledge outside what the excerpts support.
+- If the excerpts contain relevant documented experience, give a clear recommendation framed as described above.
+- If the excerpts do not contain enough relevant information to support a recommendation, reply with: "I don't have enough documented case experience with this specific situation to make a recommendation."
+- Do NOT invent treatment advice not supported by the excerpts.
+
+Documented case excerpts (anonymised):
 {context}
 
-Question:
+Therapist's question:
 {question}
 
-Your response:"""
+Your recommendation:"""
 
 
 async def generate_chat_reply(
