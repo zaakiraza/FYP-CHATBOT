@@ -6,7 +6,7 @@ from functools import lru_cache
 
 from fastapi import HTTPException, status
 from google import genai
-from google.genai.errors import ClientError
+from google.genai.errors import ClientError, ServerError
 
 from app.config import Settings, get_settings
 from app.rag.retrieve import RetrievedChunk
@@ -109,4 +109,15 @@ async def generate_chat_reply(
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Gemini API error ({code}): {e!s}",
+        ) from e
+    except ServerError as e:
+        code = getattr(e, "status_code", None)
+        if code == 503:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="The AI model is temporarily unavailable due to high demand. Please try again in a few seconds.",
+            ) from e
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail=f"Gemini server error ({code}): {e!s}",
         ) from e
