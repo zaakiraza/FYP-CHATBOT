@@ -133,6 +133,3 @@ async def generate_chat_reply(
         status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
         detail="All Gemini API keys are unavailable. Please try again later.",
     )
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gemini server error ({code}): {e!s}",
-        ) from e
