@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     assessments_collection: str | None = Field(default="assessments", validation_alias="ASSESSMENTS_COLLECTION")
 
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
+    gemini_api_key_2: str = Field(default="", validation_alias="GEMINI_API_KEY_2")
     google_api_key: str = Field(default="", validation_alias="GOOGLE_API_KEY")
 
     gemini_chat_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_CHAT_MODEL")
@@ -53,6 +54,17 @@ class Settings(BaseSettings):
 
     def effective_gemini_key(self) -> str:
         return (self.gemini_api_key or self.google_api_key or "").strip()
+
+    def gemini_api_keys(self) -> list[str]:
+        """All configured Gemini API keys in priority order."""
+        seen: set[str] = set()
+        keys: list[str] = []
+        for raw in (self.gemini_api_key, self.google_api_key, self.gemini_api_key_2):
+            k = (raw or "").strip()
+            if k and k not in seen:
+                seen.add(k)
+                keys.append(k)
+        return keys
 
     def cors_origin_list(self) -> list[str]:
         return [o.strip() for o in self.cors_origins.split(",") if o.strip()]

@@ -4,12 +4,18 @@ import asyncio
 import os
 from functools import lru_cache
 
+import logging
+
 from fastapi import HTTPException, status
 from google import genai
 from google.genai.errors import ClientError, ServerError
 
 from app.config import Settings, get_settings
 from app.rag.retrieve import RetrievedChunk
+
+logger = logging.getLogger(__name__)
+
+_RETRYABLE_CODES = {429, 503}
 
 
 @lru_cache
@@ -73,51 +79,60 @@ async def generate_chat_reply(
     settings: Settings | None = None,
 ) -> str:
     s = settings or get_settings()
-    key = _ensure_key(s)
-    client = _client(key)
+    keys = s.gemini_api_keys()
+    if not keys:
+        raise RuntimeError("No Gemini API key configured")
+
     prompt = _build_prompt(question, chunks)
+    last_exc: Exception | None = None
 
-    def _call_sync() -> str:
-        resp = client.models.generate_content(
-            model=s.gemini_chat_model,
-            contents=prompt,
-        )
-        text = getattr(resp, "text", None)
-        if text:
-            return text
-        cands = getattr(resp, "candidates", None) or []
-        if cands:
-            parts = getattr(cands[0].content, "parts", None) or []
-            if parts and getattr(parts[0], "text", None):
-                return parts[0].text
-        return "Unable to generate a response."
+    for idx, key in enumerate(keys):
+        client = _client(key)
 
-    try:
-        return await asyncio.to_thread(_call_sync)
-    except ClientError as e:
-        code = getattr(e, "status_code", None)
-        if code == 429:
+        def _call_sync(c: genai.Client = client) -> str:
+            resp = c.models.generate_content(
+                model=s.gemini_chat_model,
+                contents=prompt,
+            )
+            text = getattr(resp, "text", None)
+            if text:
+                return text
+            cands = getattr(resp, "candidates", None) or []
+            if cands:
+                parts = getattr(cands[0].content, "parts", None) or []
+                if parts and getattr(parts[0], "text", None):
+                    return parts[0].text
+            return "Unable to generate a response."
+
+        try:
+            return await asyncio.to_thread(_call_sync)
+        except (ClientError, ServerError) as e:
+            code = getattr(e, "status_code", None)
+            if code in _RETRYABLE_CODES and idx < len(keys) - 1:
+                logger.warning("llm key_%d returned %s — switching to next key", idx + 1, code)
+                last_exc = e
+                continue
+            # Last key or non-retryable error — raise HTTP response
+            if code == 429:
+                raise HTTPException(
+                    status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                    detail="All Gemini API keys have hit their rate limit or quota. Please try again later.",
+                ) from e
+            if code == 503:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="The AI model is temporarily unavailable due to high demand. Please try again in a few seconds.",
+                ) from e
             raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail=(
-                    f"Gemini rate limit or quota exceeded for model `{s.gemini_chat_model}` "
-                    "(generateContent). Wait a minute and retry, set `GEMINI_CHAT_MODEL` to another "
-                    "model (e.g. `gemini-2.5-flash`), or check usage: "
-                    "https://ai.google.dev/gemini-api/docs/rate-limits"
-                ),
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail=f"Gemini API error ({code}): {e!s}",
             ) from e
-        raise HTTPException(
-            status_code=status.HTTP_502_BAD_GATEWAY,
-            detail=f"Gemini API error ({code}): {e!s}",
-        ) from e
-    except ServerError as e:
-        code = getattr(e, "status_code", None)
-        if code == 503:
-            raise HTTPException(
-                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-                detail="The AI model is temporarily unavailable due to high demand. Please try again in a few seconds.",
-            ) from e
-        raise HTTPException(
+
+    # Should not reach here
+    raise HTTPException(
+        status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+        detail="All Gemini API keys are unavailable. Please try again later.",
+    )
             status_code=status.HTTP_502_BAD_GATEWAY,
             detail=f"Gemini server error ({code}): {e!s}",
         ) from e
