@@ -20,15 +20,6 @@ class Settings(BaseSettings):
     treatment_plans_collection: str | None = Field(default="treatmentplans", validation_alias="TREATMENT_PLANS_COLLECTION")
     assessments_collection: str | None = Field(default="assessments", validation_alias="ASSESSMENTS_COLLECTION")
 
-    jwt_secret: str = Field(default="", validation_alias="JWT_SECRET")
-    jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")
-    jwt_issuer: str | None = Field(default=None, validation_alias="JWT_ISSUER")
-    jwt_audience: str | None = Field(default=None, validation_alias="JWT_AUDIENCE")
-
-    # Local testing only: skip Bearer JWT and use this therapist id for DB filters (never enable in production)
-    skip_therapist_jwt: bool = Field(default=False, validation_alias="SKIP_THERAPIST_JWT")
-    dev_therapist_id: str = Field(default="", validation_alias="DEV_THERAPIST_ID")
-
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     google_api_key: str = Field(default="", validation_alias="GOOGLE_API_KEY")
 
@@ -38,8 +29,6 @@ class Settings(BaseSettings):
 
     rag_top_k: int = Field(default=5, validation_alias="RAG_TOP_K")
     rag_max_chunks_fetch: int = Field(default=8000, validation_alias="RAG_MAX_CHUNKS_FETCH")
-    # If true, retrieval filters MongoDB by the authenticated therapist; if false (default), search all SOAP chunks.
-    rag_therapist_scoped: bool = Field(default=False, validation_alias="RAG_THERAPIST_SCOPED")
     # Minimum cosine similarity score (0.0–1.0) for a chunk to be considered relevant.
     # Chunks below this threshold are discarded before the LLM is called.
     rag_min_score: float = Field(default=0.60, validation_alias="RAG_MIN_SCORE")
@@ -61,9 +50,6 @@ class Settings(BaseSettings):
     )
 
     rate_limit_per_minute: int = Field(default=30, validation_alias="RATE_LIMIT_PER_MINUTE")
-
-    api_host: str = Field(default="0.0.0.0", validation_alias="API_HOST")
-    api_port: int = Field(default=8000, validation_alias="API_PORT")
 
     def effective_gemini_key(self) -> str:
         return (self.gemini_api_key or self.google_api_key or "").strip()
