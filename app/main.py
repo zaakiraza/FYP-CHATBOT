@@ -12,6 +12,7 @@ from app.config import get_settings
 from app.db import close_database
 from app.limiter import limiter
 from app.routes.chat import router as chat_router
+from app.watcher import start_watchers, stop_watchers
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -20,7 +21,9 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     await ping_redis()
+    await start_watchers()
     yield
+    await stop_watchers()
     close_database()
     logger.info("MongoDB connection closed")
     await close_redis()

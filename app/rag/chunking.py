@@ -163,6 +163,170 @@ def _drafts_from_notes_array(
     return out
 
 
+def chunk_assessment_document(doc: dict[str, Any]) -> list[SoapChunkDraft]:
+    """
+    Turn an assessments MongoDB document into chunk drafts.
+
+    Useful fields: chiefComplaint, initialAssessment, meta (Object), presentingProblem (if text)
+    Identity fields skipped: appointment, patient, therapist, _id, __v
+    """
+    therapist_id = _as_str_id(
+        doc.get("therapist") or doc.get("therapistId") or doc.get("ownerTherapist")
+    )
+    if not therapist_id:
+        return []
+
+    patient_id = _as_str_id(
+        doc.get("patient") or doc.get("patientId") or doc.get("patient_id")
+    )
+    assessment_id = _as_str_id(doc.get("_id"))
+    if not assessment_id:
+        return []
+
+    session_date = doc.get("createdAt") or doc.get("updatedAt")
+
+    out: list[SoapChunkDraft] = []
+
+    def _add(field: str, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        for piece in _split_long_text(text, MAX_CHUNK_CHARS):
+            out.append(
+                SoapChunkDraft(
+                    therapist_id=therapist_id,
+                    patient_id=patient_id,
+                    session_id=f"as:{assessment_id}",
+                    field=field,
+                    text=piece,
+                    session_date=session_date,
+                )
+            )
+
+    if doc.get("chiefComplaint"):
+        _add("chief_complaint", str(doc["chiefComplaint"]))
+
+    if doc.get("initialAssessment"):
+        _add("initial_assessment", str(doc["initialAssessment"]))
+
+    # presentingProblem — only include if it looks like clinical text (not a bare date)
+    pp = doc.get("presentingProblem")
+    if pp and isinstance(pp, str):
+        pp = pp.strip()
+        import re as _re
+        if pp and not _re.fullmatch(r"\d{4}-\d{2}-\d{2}", pp):
+            _add("presenting_problem", pp)
+
+    # meta object — extract any string values that look like clinical notes
+    meta = doc.get("meta")
+    if isinstance(meta, dict):
+        meta_parts: list[str] = []
+        for key, val in meta.items():
+            if isinstance(val, str) and val.strip():
+                meta_parts.append(f"{key}: {val.strip()}")
+        if meta_parts:
+            _add("assessment_meta", "\n".join(meta_parts))
+
+    return out
+
+
+def chunk_treatment_plan_document(doc: dict[str, Any]) -> list[SoapChunkDraft]:
+    """
+    Turn a treatmentplans MongoDB document into chunk drafts.
+
+    Useful fields: problemList, diagnosis, frequency, reviewDate, goals[], interventions[]
+    Identity fields skipped: patient, ownerTherapist, updatedBy, _id
+    """
+    therapist_id = _as_str_id(
+        doc.get("ownerTherapist") or doc.get("therapistId") or doc.get("therapist")
+    )
+    if not therapist_id:
+        return []
+
+    patient_id = _as_str_id(
+        doc.get("patient") or doc.get("patientId") or doc.get("patient_id")
+    )
+    plan_id = _as_str_id(doc.get("_id"))
+    if not plan_id:
+        return []
+
+    session_date = doc.get("createdAt") or doc.get("updatedAt")
+
+    out: list[SoapChunkDraft] = []
+
+    def _add(field: str, text: str) -> None:
+        text = text.strip()
+        if not text:
+            return
+        for piece in _split_long_text(text, MAX_CHUNK_CHARS):
+            out.append(
+                SoapChunkDraft(
+                    therapist_id=therapist_id,
+                    patient_id=patient_id,
+                    session_id=f"tp:{plan_id}",
+                    field=field,
+                    text=piece,
+                    session_date=session_date,
+                )
+            )
+
+    if doc.get("problemList"):
+        _add("problem_list", str(doc["problemList"]))
+
+    if doc.get("diagnosis"):
+        _add("diagnosis", str(doc["diagnosis"]))
+
+    meta_parts: list[str] = []
+    if doc.get("frequency"):
+        meta_parts.append(f"Frequency: {doc['frequency']}")
+    if doc.get("reviewDate"):
+        meta_parts.append(f"Review date: {doc['reviewDate']}")
+    if meta_parts:
+        _add("treatment_meta", ". ".join(meta_parts))
+
+    goals = doc.get("goals")
+    if isinstance(goals, list) and goals:
+        lines: list[str] = []
+        for i, g in enumerate(goals, 1):
+            if isinstance(g, str):
+                lines.append(f"Goal {i}: {g}")
+            elif isinstance(g, dict):
+                parts: list[str] = []
+                for key in ("description", "goal", "text", "title", "name", "target", "objective"):
+                    if g.get(key):
+                        parts.append(str(g[key]))
+                        break
+                for key in ("status", "progress", "targetDate"):
+                    if g.get(key):
+                        parts.append(f"{key}: {g[key]}")
+                if parts:
+                    lines.append(f"Goal {i}: {'. '.join(parts)}")
+        if lines:
+            _add("goals", "\n".join(lines))
+
+    interventions = doc.get("interventions")
+    if isinstance(interventions, list) and interventions:
+        lines = []
+        for i, iv in enumerate(interventions, 1):
+            if isinstance(iv, str):
+                lines.append(f"Intervention {i}: {iv}")
+            elif isinstance(iv, dict):
+                parts = []
+                for key in ("description", "intervention", "text", "title", "name", "type"):
+                    if iv.get(key):
+                        parts.append(str(iv[key]))
+                        break
+                for key in ("frequency", "duration", "method", "technique"):
+                    if iv.get(key):
+                        parts.append(f"{key}: {iv[key]}")
+                if parts:
+                    lines.append(f"Intervention {i}: {'. '.join(parts)}")
+        if lines:
+            _add("interventions", "\n".join(lines))
+
+    return out
+
+
 def chunk_source_document(doc: dict[str, Any]) -> list[SoapChunkDraft]:
     """
     Turn a MongoDB document into chunk drafts (no embeddings).

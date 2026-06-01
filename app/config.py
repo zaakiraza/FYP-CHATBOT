@@ -17,6 +17,8 @@ class Settings(BaseSettings):
 
     soap_chunks_collection: str = Field(default="soap_chunks", validation_alias="SOAP_CHUNKS_COLLECTION")
     soap_source_collection: str | None = Field(default=None, validation_alias="SOAP_SOURCE_COLLECTION")
+    treatment_plans_collection: str | None = Field(default="treatmentplans", validation_alias="TREATMENT_PLANS_COLLECTION")
+    assessments_collection: str | None = Field(default="assessments", validation_alias="ASSESSMENTS_COLLECTION")
 
     jwt_secret: str = Field(default="", validation_alias="JWT_SECRET")
     jwt_algorithm: str = Field(default="HS256", validation_alias="JWT_ALGORITHM")

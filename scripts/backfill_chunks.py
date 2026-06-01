@@ -29,7 +29,7 @@ from typing import Any
 
 from app.config import get_settings
 from app.db import close_database, get_database
-from app.rag.chunking import SoapChunkDraft, chunk_source_document
+from app.rag.chunking import SoapChunkDraft, chunk_assessment_document, chunk_source_document, chunk_treatment_plan_document
 from app.rag.embeddings import embed_document_text
 
 logging.basicConfig(level=logging.INFO)
@@ -112,12 +112,140 @@ async def run_backfill(*, limit: int | None) -> None:
     logger.info("Done. Source docs processed: %s, chunks upserted (new/updated rows): %s", processed, upserted)
 
 
+async def run_backfill_treatment_plans(*, limit: int | None) -> None:
+    """Chunk and embed treatmentplans collection into soap_chunks."""
+    settings = get_settings()
+    if not settings.treatment_plans_collection:
+        logger.info("TREATMENT_PLANS_COLLECTION not set — skipping treatment plans backfill.")
+        return
+
+    db = get_database()
+    src = db[settings.treatment_plans_collection]
+    dst = db[settings.soap_chunks_collection]
+
+    total = await src.count_documents({})
+    logger.info(
+        "Treatment plans — source=%s documents=%s",
+        settings.treatment_plans_collection,
+        total,
+    )
+    if total == 0:
+        logger.warning("treatmentplans collection is empty or wrong name.")
+        return
+
+    cursor = src.find({})
+    if limit:
+        cursor = cursor.limit(limit)
+
+    processed = 0
+    upserted = 0
+    async for doc in cursor:
+        processed += 1
+        drafts: list[SoapChunkDraft] = chunk_treatment_plan_document(doc)
+        for d in drafts:
+            vec = await embed_document_text(d.text, settings=settings)
+            chunk_key = _chunk_key(d.session_id, d.field, d.text)
+            now = datetime.now(timezone.utc)
+            payload: dict[str, Any] = {
+                "chunkKey": chunk_key,
+                "therapistId": d.therapist_id,
+                "patientId": d.patient_id,
+                "sessionId": d.session_id,
+                "field": d.field,
+                "text": d.text,
+                "embedding": vec,
+                "sessionDate": d.session_date,
+                "updatedAt": now,
+            }
+            r = await dst.update_one(
+                {"chunkKey": chunk_key},
+                {"$set": payload, "$setOnInsert": {"createdAt": now}},
+                upsert=True,
+            )
+            if r.upserted_id is not None or r.modified_count:
+                upserted += 1
+        if processed % 20 == 0:
+            logger.info("Processed %s treatment plan documents…", processed)
+
+    logger.info("Done. Treatment plans processed: %s, chunks upserted: %s", processed, upserted)
+
+
+async def run_backfill_assessments(*, limit: int | None) -> None:
+    """Chunk and embed assessments collection into soap_chunks."""
+    settings = get_settings()
+    if not settings.assessments_collection:
+        logger.info("ASSESSMENTS_COLLECTION not set — skipping assessments backfill.")
+        return
+
+    db = get_database()
+    src = db[settings.assessments_collection]
+    dst = db[settings.soap_chunks_collection]
+
+    total = await src.count_documents({})
+    logger.info(
+        "Assessments — source=%s documents=%s",
+        settings.assessments_collection,
+        total,
+    )
+    if total == 0:
+        logger.warning("assessments collection is empty or wrong name.")
+        return
+
+    cursor = src.find({})
+    if limit:
+        cursor = cursor.limit(limit)
+
+    processed = 0
+    upserted = 0
+    async for doc in cursor:
+        processed += 1
+        drafts: list[SoapChunkDraft] = chunk_assessment_document(doc)
+        for d in drafts:
+            vec = await embed_document_text(d.text, settings=settings)
+            chunk_key = _chunk_key(d.session_id, d.field, d.text)
+            now = datetime.now(timezone.utc)
+            payload: dict[str, Any] = {
+                "chunkKey": chunk_key,
+                "therapistId": d.therapist_id,
+                "patientId": d.patient_id,
+                "sessionId": d.session_id,
+                "field": d.field,
+                "text": d.text,
+                "embedding": vec,
+                "sessionDate": d.session_date,
+                "updatedAt": now,
+            }
+            r = await dst.update_one(
+                {"chunkKey": chunk_key},
+                {"$set": payload, "$setOnInsert": {"createdAt": now}},
+                upsert=True,
+            )
+            if r.upserted_id is not None or r.modified_count:
+                upserted += 1
+        if processed % 20 == 0:
+            logger.info("Processed %s assessment documents…", processed)
+
+    logger.info("Done. Assessments processed: %s, chunks upserted: %s", processed, upserted)
+
+
 def main() -> None:
     p = argparse.ArgumentParser()
     p.add_argument("--limit", type=int, default=None, help="Max source documents to process")
+    p.add_argument("--skip-soap", action="store_true", help="Skip SOAP notes backfill")
+    p.add_argument("--skip-plans", action="store_true", help="Skip treatment plans backfill")
+    p.add_argument("--skip-assessments", action="store_true", help="Skip assessments backfill")
     args = p.parse_args()
+
+    async def _run() -> None:
+        if not args.skip_soap:
+            await run_backfill(limit=args.limit)
+        if not args.skip_plans:
+            await run_backfill_treatment_plans(limit=args.limit)
+        if not args.skip_assessments:
+            await run_backfill_assessments(limit=args.limit)
+
     try:
-        asyncio.run(run_backfill(limit=args.limit))
+        asyncio.run(_run())
     finally:
         close_database()
 
