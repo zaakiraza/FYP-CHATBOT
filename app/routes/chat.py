@@ -40,11 +40,13 @@ class ChatResponse(BaseModel):
         json_schema_extra={
             "example": {
                 "reply": "My recommendation for a patient dealing with academic stress is...",
+                "key_used": "key_1",
             }
         }
     )
 
     reply: str = Field(description="Anonymised clinical recommendation grounded in documented SOAP case patterns.")
+    key_used: str | None = Field(default=None, description="Which Gemini API key was used (key_1, key_2, …). None if served from cache.")
 
 
 _CHAT_OPENAPI_EXAMPLES = {
@@ -106,10 +108,10 @@ async def _run_chat(
         )
         return ChatResponse(reply=reply)
 
-    reply = await generate_chat_reply(body.message, chunks, settings=settings)
+    reply, key_used = await generate_chat_reply(body.message, chunks, settings=settings)
     # Store successful LLM reply in response cache
     await set_cached_response(body.message, reply)
-    return ChatResponse(reply=reply)
+    return ChatResponse(reply=reply, key_used=key_used)
 
 
 @router.post(

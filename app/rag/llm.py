@@ -77,7 +77,7 @@ async def generate_chat_reply(
     chunks: list[RetrievedChunk],
     *,
     settings: Settings | None = None,
-) -> str:
+) -> tuple[str, str]:
     s = settings or get_settings()
     keys = s.gemini_api_keys()
     if not keys:
@@ -105,7 +105,9 @@ async def generate_chat_reply(
             return "Unable to generate a response."
 
         try:
-            return await asyncio.to_thread(_call_sync)
+            result = await asyncio.to_thread(_call_sync)
+            logger.info("llm key_%d success", idx + 1)
+            return result, f"key_{idx + 1}"
         except (ClientError, ServerError) as e:
             code = getattr(e, "status_code", None)
             if code in _RETRYABLE_CODES and idx < len(keys) - 1:
